@@ -91,11 +91,11 @@
     var lookupSource = $obj.data(name).activeData;
     if (typeof(lookupSource) == "string") {
       // get the data from ajax source check length to be min-length for ajax lookup
-      if(lookupString.length >= $obj.data(name).settings.minLength){
+      if(lookupString.length >= $obj.data(name).minLength){
         $.ajax({
           async: true,
           cache: false,
-          data: {searchQuery: lookupString, limit: $obj.data(name).settings.limit},
+          data: {searchQuery: lookupString, limit: $obj.data(name).limit},
           error: function(xhr, status, error) {
             showError('ajax error - ' + status + ' - ' + error);
           },
@@ -121,8 +121,8 @@
     var renderCount = 0;
     lookupUi.empty();
     $.each(data, function(index, element) {
-      if(renderCount < $obj.data(name).settings.limit) {
-        var displayElement = $obj.data(name).settings.onSearch(searchString, element, $obj.data(name).activeTrigger);
+      if(renderCount < $obj.data(name).limit) {
+        var displayElement = $obj.data(name).onSearch(searchString, element, $obj.data(name).activeTrigger);
         if(displayElement) {
           lookupUi.append($("<li/>").attr("id", renderCount).data("itemData", element).addClass("lookupui_row ui-menu-item").html(displayElement));
           renderCount++;
@@ -146,7 +146,7 @@
     //render selection menu
     var lookupUi = $("<ul/>").attr("id", "lookupui").addClass("lookupui ui-autocomplete ui-front ui-menu ui-widget ui-widget-content");
 
-    $(".lookupui_row").live("click", function() {
+    $(".lookupui_row").on("click", function() {
       $obj.data(name).currentSelection = $(this).attr("id");
       stopCapture($obj);
       $obj.focus();
@@ -172,7 +172,7 @@
   function stopCapture($obj, cancelSelection) {
     cancelSelection = cancelSelection !== undefined ? cancelSelection : false;
 
-    $(".lookupui_row").die("click");
+    $(".lookupui_row").unbind("click");
 
     if(!cancelSelection) {
       var selection = $(".lookupui_row:eq(" + $obj.data(name).currentSelection + ")", "#lookupui");
@@ -182,8 +182,8 @@
         var positionUpTo = position;
 
         var selectionText = selection.text();
-        if($obj.data(name).settings.onSelect !== null) {
-          selectionText = $obj.data(name).settings.onSelect(selection.data("itemData"), $obj.data(name).activeTrigger, position);
+        if($obj.data(name).onSelect !== null) {
+          selectionText = $obj.data(name).onSelect(selection.data("itemData"), $obj.data(name).activeTrigger, position);
           positionUpTo--;
         }
 
@@ -208,24 +208,22 @@
 
   GeniusBox.prototype = {
     init: function () {
-      if (!this.$element.data(name)) {
-        var config   = $.extend({}, $.fn.geniusBox.defaults, this.options, this.metadata);
+      var ele = this.$element;
+      if (!ele.data(name)) {
+        var config = $.extend({}, $.fn.geniusBox.defaults, this.options, this.metadata);
         // assign a datasource for searches
         var lookupSource;
         lookupSource = config.datasource;
         // set this element as initialised
-        this.$element.data(name, config);
+        ele.data(name, config);
         // track key down events on the object
-        this.$element.bind('keydown', function(event) {
-          if(typeof(this.$element.data(name)) == "undefined") {
-            return false;
-          }
+        ele.bind('keydown', function(event) {
           var preventKeyCodes = [9, 13, 27, 38, 40];
-          if (this.$element.data(name).settings.spaceSelection === true) {
+          if (ele.data(name).spaceSelection === true) {
             preventKeyCodes.push(32);
           }
           //if capturing is active
-          if (this.$element.data(name).capture === true) {
+          if (ele.data(name).capture === true) {
             if ($.inArray(event.which, preventKeyCodes) > -1) {
               event.preventDefault();
             }
@@ -233,101 +231,100 @@
         });
 
         // track key press events on the object
-        $(this).bind('keypress', function(event) {
+        ele.bind('keypress', function(event) {
           //if capture is not active AND trigger key found
-          $.each(this.$element.data(name).datasource, function(trigger, data) {
-            if (this.$element.data(name).capture === false && String.fromCharCode(event.which) == trigger) {
-              this.$element.data(name).activeTrigger = trigger;
-              this.$element.data(name).activeData = data;
+          $.each(ele.data(name).datasource, function(trigger, data) {
+            if (ele.data(name).capture === false && String.fromCharCode(event.which) == trigger) {
+              ele.data(name).activeTrigger = trigger;
+              ele.data(name).activeData = data;
               //this.$element.data(name).startupChar = true;
-              startCapture(this.$element);
+              startCapture(ele);
             }
           });
         });
 
         //track key up events on the object
-        this.$element.bind('keyup', function(event) {
+        ele.bind('keyup', function(event) {
           //if capturing is active
-          if (this.$element.data(name).capture === true) {
+          if (ele.data(name).capture === true) {
             //perform lookup key processing
             switch(event.which) {
-            case 8://backspace
-              if(this.$element.data(name).currentCapture === "") {
-                stopCapture(this.$element, true);
+            case 8: //backspace
+              if(ele.data(name).currentCapture === "") {
+                stopCapture(ele, true);
                 break;
               }
-              this.$element.data(name).currentCapture = this.$element.data(name).currentCapture.substr(0, this.$element.data(name).currentCapture.length - 1);
-              doSearch(this.$element);
+              ele.data(name).currentCapture = ele.data(name).currentCapture.substr(0, ele.data(name).currentCapture.length - 1);
+              doSearch(ele);
               break;
             case 9://tab
-              stopCapture(this.$element);
+              stopCapture(ele);
               break;
             case 13://return
-              stopCapture(this.$element);
+              stopCapture(ele);
               break;
             case 27://esc
-              stopCapture(this.$element, true);
+              stopCapture(ele, true);
               break;
             case 32://space
-              if (this.$element.data(name).settings.spaceSelection === true) {
-                $(".lookupui_row:eq(" + this.$element.data(name).currentSelection + ")", "#lookupui").text($(".lookupui_row:eq(" + this.$element.data(name).currentSelection + ")", "#lookupui").text() + " ");
-                stopCapture(this.$element);
+              if (ele.data(name).spaceSelection === true) {
+                $(".lookupui_row:eq(" + ele.data(name).currentSelection + ")", "#lookupui").text($(".lookupui_row:eq(" + ele.data(name).currentSelection + ")", "#lookupui").text() + " ");
+                stopCapture(ele);
               } else {
                 //this.$element.data(name).currentCapture += String.fromCharCode(event.which).replace(/[^a-zA-Z0-9 ]/g, '');
                 //doSearch(this.$element);
-                stopCapture(this.$element, true);
+                stopCapture(ele, true);
               }
               break;
             case 38://up
-              if ((this.$element.data(name).currentSelection !== undefined) && (this.$element.data(name).currentSelection !== 0)) {
-                this.$element.data(name).currentSelection -= 1;
+              if ((ele.data(name).currentSelection !== undefined) && (ele.data(name).currentSelection !== 0)) {
+                ele.data(name).currentSelection -= 1;
               } else {
-                this.$element.data(name).currentSelection = $(".lookupui_row").size() - 1;
+                ele.data(name).currentSelection = $(".lookupui_row").size() - 1;
               }
-              setSelection(this.$element);
+              setSelection(ele);
               break;
             case 40://down
-              if ((this.$element.data(name).currentSelection !== undefined) && (this.$element.data(name).currentSelection < $(".lookupui_row", "#lookupui").size() - 1)) {
-                this.$element.data(name).currentSelection += 1;
+              if ((ele.data(name).currentSelection !== undefined) && (ele.data(name).currentSelection < $(".lookupui_row", "#lookupui").size() - 1)) {
+                ele.data(name).currentSelection += 1;
               } else {
-                this.$element.data(name).currentSelection = 0;
+                ele.data(name).currentSelection = 0;
               }
-              setSelection(this.$element);
+              setSelection(ele);
               break;
             default:
-              var pullTo = getInputSelection(this.$element.get(0)).start;
-              var realText = this.$element.val().substring(this.$element.data(name).startPullString,pullTo).replace(/[^a-zA-Z_0-9% ]/g, '');
+              var pullTo = getInputSelection(ele.get(0)).start;
+              var realText = ele.val().substring(ele.data(name).startPullString,pullTo).replace(/[^a-zA-Z_0-9% ]/g, '');
 
-              if(!this.$element.data(name).startupChar) {
+              if(!ele.data(name).startupChar) {
                 //this.$element.data(name).currentCapture += String.fromCharCode(event.which).replace(/[^a-zA-Z_0-9 ]/g, '');
-                this.$element.data(name).currentCapture = realText;
+                ele.data(name).currentCapture = realText;
               } else {
-                this.$element.data(name).startupChar = false;
+                ele.data(name).startupChar = false;
               }
 
-              doSearch(this.$element);
+              doSearch(ele);
               break;
             }
           }
         });
-        if(this.$element.data(name).autoExpand === true){
+        if(ele.data(name).autoExpand === true){
           // Set the textarea to the content height. i.e. expand as we type.
-          this.$element.on('keyup paste cut', function () {
-            var contentHeight = $(this).textareaHelper('height');
-            $(this).height(contentHeight);
-            $(this).parent('.textareaBorder').height(contentHeight);
+          ele.on('keyup paste cut', function () {
+            // var contentHeight = $(this).textareaHelper('height');
+            // $(this).height(contentHeight);
           });
         }
 
         //on mouse hover of a lookup result highlight it
-        $(".lookupui_row").live("mouseover", function() {
-          this.$element.data(name).currentSelection = $(this).attr("id");
-          setSelection(this.$element);
+        $(".lookupui_row").on("mouseover", function() {
+          ele.data(name).currentSelection = $(this).attr("id");
+          setSelection(ele);
         });
 
-        $(".lookupui_row").live("mouseout", function() {
-          this.$element.data(name).currentSelection = undefined;
-          setSelection(this.$element);
+        $(".lookupui_row").on("mouseout", function() {
+          ele.data(name).currentSelection = undefined;
+          setSelection(ele);
         });
       }
       return this;
@@ -336,8 +333,8 @@
     destroy: function() {
       return this.each(function(){
         var $lookupObj = $(this);
-        $lookupObj.unbind('keyup keydown');
-        $lookupObj.removeData('lookup');
+        $lookupObj.unbind('keyup paste cut keydown');
+        $lookupObj.removeData(name);
       });
     }
   };
@@ -351,8 +348,6 @@
   $.fn.geniusBox.defaults = {
     activeTrigger: undefined,
     activeData: undefined,
-    settings: null,
-    target: null,
     datasource: null,
     capture: false,
     currentCapture: '',

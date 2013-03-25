@@ -12,12 +12,27 @@
 ;(function ($, window, document, undefined) {
   'use strict';
   var name = 'genius-box';
+  var caretClass = 'textarea-helper-caret';
+  // Styles that could influence size of the mirrored div
+  var mirrorStyles = [
+                       // Box Styles.
+                       'box-sizing', 'height', 'width', 'padding-bottom', 'padding-left', 'padding-right', 'padding-top',
+                       // Font stuff.
+                       'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight',
+                       // Spacing etc.
+                       'word-spacing', 'letter-spacing', 'line-height', 'text-decoration', 'text-indent', 'text-transform',
+                       // The direction.
+                       'direction'
+                     ];
 
   var GeniusBox = function (element, options) {
     this.element  = element;
     this.$element = $(element);
     this.options  = options;
     this.metadata = this.$element.data(name);
+    this.$wrapper = $('<div/>').css({ 'position': 'relative', 'width': '100%'});
+    this.$element.wrap(this.$wrapper);
+    this.$mirror  = $('<div/>').css({ 'color': 'transparent', 'position': 'absolute', 'overflow': 'auto', 'white-space': 'pre-wrap', 'word-wrap': 'break-word', 'top': 1, 'left': 0, 'z-index': 9}).insertAfter(this.$element);
   };
 
   // throws error messages
@@ -106,8 +121,6 @@
           type: "POST",
           url: lookupSource
         });
-      } else {
-        showError(lookupString + " is too short");
       }
     } else {
       renderUiItems($obj, lookupSource, lookupString);
@@ -117,14 +130,14 @@
 
   // render the html for result items.
   function renderUiItems($obj, data, searchString) {
-    var lookupUi = $("#lookupui");
+    var lookupUi = $(".lookupui");
     var renderCount = 0;
     lookupUi.empty();
     $.each(data, function(index, element) {
       if(renderCount < $obj.data(name).limit) {
         var displayElement = $obj.data(name).onSearch(searchString, element, $obj.data(name).activeTrigger);
         if(displayElement) {
-          lookupUi.append($("<li/>").attr("id", renderCount).data("itemData", element).addClass("lookupui_row ui-menu-item").html(displayElement));
+          lookupUi.append($("<li/>").attr("id", renderCount).data("itemData", element).html(displayElement));
           renderCount++;
         }
       }
@@ -142,13 +155,14 @@
   }
 
   // called upon trigger key to render the selections menu and begin capture.
-  function startCapture($obj) {
+  function startCapture($obj, tokens) {
     //render selection menu
-    var lookupUi = $("<ul/>").attr("id", "lookupui").addClass("lookupui ui-autocomplete ui-front ui-menu ui-widget ui-widget-content");
+    var lookupUi = $("<ul/>").attr("id", "lookupui").addClass("lookupui");
 
-    $(".lookupui_row").on("click", function() {
+    $("body").on("click", ".lookupui > li > a", function() {
       $obj.data(name).currentSelection = $(this).attr("id");
-      stopCapture($obj);
+      setSelection($obj);
+      stopCapture($obj, false, tokens);
       $obj.focus();
     });
 
@@ -163,57 +177,137 @@
 
     //position the selection division
     lookupUi.css({
-      left: $obj.position().left + $(".tail").position().left,
-      top: $obj.position().top + $(".tail").position().top + 20
+      left: $obj.position().left + $(".textarea-helper-caret").position().left,
+      top: $obj.position().top + $(".textarea-helper-caret").position().top + 20
     });
   }
 
   // called upon selection or cancel to end the current lookup capture.
-  function stopCapture($obj, cancelSelection) {
+  function stopCapture($obj, cancelSelection, tokens) {
     cancelSelection = cancelSelection !== undefined ? cancelSelection : false;
 
-    $(".lookupui_row").unbind("click");
+    $(".lookupui > li > a").off("click");
 
     if(!cancelSelection) {
-      var selection = $(".lookupui_row:eq(" + $obj.data(name).currentSelection + ")", "#lookupui");
+      var selection = $(".lookupui li:eq(" + $obj.data(name).currentSelection + ")");
       if(selection.size() > 0) {
         var storeText = $obj.val();
         var position = getInputSelection($obj.get(0)).start - $obj.data(name).currentCapture.length;
         var positionUpTo = position;
-
         var selectionText = selection.text();
         if($obj.data(name).onSelect !== null) {
           selectionText = $obj.data(name).onSelect(selection.data("itemData"), $obj.data(name).activeTrigger, position);
           positionUpTo--;
         }
-
         var newText = storeText.substr(0, positionUpTo) + selectionText + storeText.substr(position + $obj.data(name).currentCapture.length);
         $obj.val(newText);
-
+        tokens.push([selectionText, selection.data("itemData"), positionUpTo, selectionText.length]);
+        tokens.sort(function(a,b){return a[2] - b[2];});
         setInputSelection($obj.get(0), position + selectionText.length);
       }
     }
     $obj.data(name).currentCapture = "";
     $obj.data(name).currentSelection = undefined;
     $obj.data(name).capture = false;
-    $("#lookupui").empty().remove();
+    $(".lookupui").empty().remove();
   }
 
   // updates the current selection to the user.
   function setSelection($obj) {
     $obj.data(name).currentSelection = $obj.data(name).currentSelection === undefined ? 0 : $obj.data(name).currentSelection;
-    $(".lookupui_row", "#lookupui").removeClass("lookupui_row_select");
-    $(".lookupui_row:eq(" + $obj.data(name).currentSelection + ")", "#lookupui").addClass("lookupui_row_select");
+    $(".lookupui > li").removeClass("active");
+    $(".lookupui > li:eq(" + $obj.data(name).currentSelection + ")").addClass("active");
+  }
+
+  // XBrowser caret position
+  // Adapted from http://stackoverflow.com/questions/263743/how-to-get-caret-position-in-textarea
+  function getOriginalCaretPos($obj) {
+    var text = $obj;
+    if (text.selectionStart) {
+      return text.selectionStart;
+    } else if (document.selection) {
+      text.focus();
+      var r = document.selection.createRange();
+      if (r === null) {
+        return 0;
+      }
+      var re = text.createTextRange();
+      var rc = re.duplicate();
+      re.moveToBookmark(r.getBookmark());
+      rc.setEndPoint('EndToStart', re);
+      return rc.text.length;
+    }
+    return 0;
+  }
+
+  function height($obj, $mirror) {
+    $mirror.css('height', '');
+    return $mirror.height();
+  }
+
+  // Get the caret position at any time
+  function caretPos($obj, $mirror) {
+    var $caret = $mirror.find('.' + caretClass);
+    var pos    = $caret.position();
+    if ($obj.css('direction') === 'rtl') {
+      pos.right = $mirror.innerWidth() - pos.left - $caret.width();
+      pos.left = 'auto';
+    }
+    return pos;
+  }
+
+  // Update the mirror div
+  function update($obj, $mirror, tokens) {
+    // Copy styles.
+    var styles = {};
+    for (var i = 0, style; style = mirrorStyles[i]; i++) {
+      styles[style] = $obj.css(style);
+    }
+    $mirror.css(styles).empty();
+    // Update content and insert caret.
+    var caretPos = getOriginalCaretPos($obj);
+    $obj.val($obj.val().replace( new RegExp(preg_quote('  '), 'gi' ), ' '));
+    var s = $obj.val();
+    var html = "";
+    var start = 0;
+    for (i=0; i< tokens.length; i++){
+      if( !(tokens[i][2] <= 1) ) {
+        html += s.substr(start, tokens[i][2] - start);
+      }
+      html += '<span class="highlight">' + tokens[i][0] + '</span>';
+      start = tokens[i][2] + tokens[i][3];
+    }
+    if (start != s.length){
+      html += s.substr(start, s.length);
+    }
+    $mirror.html(html.replace(/(\r\n|\r|\n)/g, "<br />"));
+    var $car = $('<span/>').addClass(caretClass).html('&nbsp;');
+    $mirror.append($car).scrollTop($obj.scrollTop());
+  }
+
+  function preg_quote(str) {
+    return (str).replace(/([\\\.\+\*\?\[\^\]\$\(\)\{\}\=\!\\<\>\|\:])/g, "\\$1");
   }
 
   GeniusBox.prototype = {
     init: function () {
       var ele = this.$element;
+      ele.css({ 'background': 'transparent', 'position': 'absolute', 'z-index':10});
+      var mirror = this.$mirror;
       if (!ele.data(name)) {
-        var config = $.extend({}, $.fn.geniusBox.defaults, this.options, this.metadata);
+        var privateOptions = {
+          activeTrigger: undefined,
+          activeData: undefined,
+          capture: false,
+          currentCapture: '',
+          startupChar: false,
+          tokens: []
+        };
+        var config = $.extend({}, $.fn.geniusBox.defaults, this.options, this.metadata, privateOptions);
         // assign a datasource for searches
         var lookupSource;
         lookupSource = config.datasource;
+        var tokens = config.tokens;
         // set this element as initialised
         ele.data(name, config);
         // track key down events on the object
@@ -238,7 +332,7 @@
               ele.data(name).activeTrigger = trigger;
               ele.data(name).activeData = data;
               //this.$element.data(name).startupChar = true;
-              startCapture(ele);
+              startCapture(ele, tokens);
             }
           });
         });
@@ -251,41 +345,41 @@
             switch(event.which) {
             case 8: //backspace
               if(ele.data(name).currentCapture === "") {
-                stopCapture(ele, true);
+                stopCapture(ele, true, tokens);
                 break;
               }
               ele.data(name).currentCapture = ele.data(name).currentCapture.substr(0, ele.data(name).currentCapture.length - 1);
               doSearch(ele);
               break;
             case 9://tab
-              stopCapture(ele);
+              stopCapture(ele, false, tokens);
               break;
             case 13://return
-              stopCapture(ele);
+              stopCapture(ele, false, tokens);
               break;
             case 27://esc
-              stopCapture(ele, true);
+              stopCapture(ele, true, tokens);
               break;
             case 32://space
               if (ele.data(name).spaceSelection === true) {
-                $(".lookupui_row:eq(" + ele.data(name).currentSelection + ")", "#lookupui").text($(".lookupui_row:eq(" + ele.data(name).currentSelection + ")", "#lookupui").text() + " ");
-                stopCapture(ele);
+                $(".lookupui > li:eq(" + ele.data(name).currentSelection + ")").text($(".lookupui li:eq(" + ele.data(name).currentSelection + ")").text() + " ");
+                stopCapture(ele, false, tokens);
               } else {
-                //this.$element.data(name).currentCapture += String.fromCharCode(event.which).replace(/[^a-zA-Z0-9 ]/g, '');
-                //doSearch(this.$element);
-                stopCapture(ele, true);
+                ele.data(name).currentCapture += String.fromCharCode(event.which).replace(/[^a-zA-Z0-9 ]/g, '');
+                doSearch(ele);
+                // stopCapture(ele, true, tokens);
               }
               break;
-            case 38://up
+            case 38: //up
               if ((ele.data(name).currentSelection !== undefined) && (ele.data(name).currentSelection !== 0)) {
                 ele.data(name).currentSelection -= 1;
               } else {
-                ele.data(name).currentSelection = $(".lookupui_row").size() - 1;
+                ele.data(name).currentSelection = $(".lookupui > li").size() - 1;
               }
               setSelection(ele);
               break;
-            case 40://down
-              if ((ele.data(name).currentSelection !== undefined) && (ele.data(name).currentSelection < $(".lookupui_row", "#lookupui").size() - 1)) {
+            case 40: //down
+              if ((ele.data(name).currentSelection !== undefined) && (ele.data(name).currentSelection < $(".lookupui > li").size() - 1)) {
                 ele.data(name).currentSelection += 1;
               } else {
                 ele.data(name).currentSelection = 0;
@@ -295,7 +389,6 @@
             default:
               var pullTo = getInputSelection(ele.get(0)).start;
               var realText = ele.val().substring(ele.data(name).startPullString,pullTo).replace(/[^a-zA-Z_0-9% ]/g, '');
-
               if(!ele.data(name).startupChar) {
                 //this.$element.data(name).currentCapture += String.fromCharCode(event.which).replace(/[^a-zA-Z_0-9 ]/g, '');
                 ele.data(name).currentCapture = realText;
@@ -307,22 +400,54 @@
               break;
             }
           }
+          // if capturing is not active
+          else {
+            // backspace for deleteing tokens
+            if(event.which == 8){
+              var pos = getInputSelection(ele.get(0)).start;
+              var s   = ele.val();
+              for(var i = 0; i < tokens.length; i++){
+                // see if backspace is in the middle of existing token.
+                if (pos >= tokens[i][2] && pos <= tokens[i][2] + tokens[i][3]){
+                  var removedLength = tokens[i][0].length;
+                  // update all tokens after the one being deleted.
+                  $.each(tokens, function(index, token){
+                    if(tokens[i][2] < token[2]){
+                      token[2] = token[2] - removedLength - 1;
+                    }
+                  });
+                  s = s.substr(0, tokens[i][2]) + s.substr(tokens[i][2] + tokens[i][3]);
+                  tokens.splice(i,1);
+                } else{
+                  $.each(tokens, function(index, token){
+                    if(token[2] > pos){
+                      token[2] = token[2] - 1;
+                    }
+                  });
+                }
+              }
+              ele.val(s);
+            }
+          }
         });
         if(ele.data(name).autoExpand === true){
+          update(ele, mirror, tokens);
           // Set the textarea to the content height. i.e. expand as we type.
-          ele.on('keyup paste cut', function () {
-            // var contentHeight = $(this).textareaHelper('height');
-            // $(this).height(contentHeight);
+          ele.on('keyup keypress keydown paste cut', function () {
+            update(ele, mirror, tokens);
+            var contentHeight = height(ele, mirror);
+            ele.height(contentHeight);
+            ele.parent().height(contentHeight);
           });
         }
 
         //on mouse hover of a lookup result highlight it
-        $(".lookupui_row").on("mouseover", function() {
+        $(".lookupui > li").on("mouseover", function() {
           ele.data(name).currentSelection = $(this).attr("id");
           setSelection(ele);
         });
 
-        $(".lookupui_row").on("mouseout", function() {
+        $(".lookupui > li").on("mouseout", function() {
           ele.data(name).currentSelection = undefined;
           setSelection(ele);
         });
@@ -346,12 +471,7 @@
   };
 
   $.fn.geniusBox.defaults = {
-    activeTrigger: undefined,
-    activeData: undefined,
     datasource: null,
-    capture: false,
-    currentCapture: '',
-    startupChar: false,
     minLength: 3,
     spaceSelection: false,
     limit: 6,

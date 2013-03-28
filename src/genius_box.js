@@ -32,7 +32,7 @@
     this.metadata = this.$element.data(name);
     this.$wrapper = $('<div/>').css({ 'position': 'relative', 'width': '100%'});
     this.$element.wrap(this.$wrapper);
-    this.$mirror  = $('<div/>').css({ 'color': 'transparent', 'position': 'absolute', 'overflow': 'auto', 'white-space': 'pre-wrap', 'word-wrap': 'break-word', 'top': 1, 'left': 0, 'z-index': 9}).insertAfter(this.$element);
+    this.$mirror  = $('<div/>').css({ 'color': 'black', 'position': 'absolute', 'overflow': 'auto', 'white-space': 'pre-wrap', 'word-wrap': 'break-word', 'top': 1, 'left': 0, 'z-index': 9}).insertAfter(this.$element);
   };
 
   // throws error messages
@@ -256,33 +256,76 @@
     return pos;
   }
 
+  function updateTokenPositions($obj, $mirror, tokens){
+    var pos = getInputSelection($obj.get(0)).start;
+    var str = $obj.val();
+    // subtraction event
+    if ($obj.data("original").length > str.length){
+      console.log("subtraction event took place.");
+      for(var i = 0; i < tokens.length; i++){
+        // see if backspace is in the middle of existing token.
+        if (pos > tokens[i][2] && pos < tokens[i][2] + tokens[i][3]){
+          console.log("subtraction event took place inside token #" + i);
+          var removedLength = tokens[i][0].length;
+          // update all tokens after the one being deleted.
+          $.each(tokens, function(index, token){
+            if(tokens[i][2] < token[2]){
+              console.log("token " + token[0] + "was moved back by 1");
+              token[2] = token[2] - removedLength - 1;
+            }
+          });
+          str = str.substr(0, tokens[i][2]) + str.substr(tokens[i][2] + tokens[i][3]);
+          console.log("token deleted, value is now: " + str);
+          tokens.splice(i,1);
+        } else {
+          console.log("additive event took place.");
+          if(tokens[i][2] > pos){
+            console.log("token #" + i + " was moved forward by 1");
+            tokens[i][2]--;
+          }
+        }
+      }
+      $obj.val(str);
+    }
+    // additive event.
+    else if ($obj.data("original").length < str.length){
+      for(var j = 0; j < tokens.length; j++){
+        if(tokens[j][2] > pos){
+          tokens[j][2]++;
+        }
+      }
+    }
+    $obj.data("original", $obj.val());
+  }
+
   // Update the mirror div
   function update($obj, $mirror, tokens) {
     // Copy styles.
     var styles = {};
-    for (var i = 0, style; style = mirrorStyles[i]; i++) {
-      styles[style] = $obj.css(style);
+    for (var k = 0; k < mirrorStyles.length; k++) {
+      styles[mirrorStyles[k]] = $obj.css(mirrorStyles[k]);
     }
     $mirror.css(styles).empty();
     // Update content and insert caret.
     var caretPos = getOriginalCaretPos($obj);
-    $obj.val($obj.val().replace( new RegExp(preg_quote('  '), 'gi' ), ' '));
     var s = $obj.val();
     var html = "";
     var start = 0;
-    for (i=0; i< tokens.length; i++){
-      if( !(tokens[i][2] <= 1) ) {
-        html += s.substr(start, tokens[i][2] - start);
+    for (var h=0; h< tokens.length; h++){
+      if(tokens[h][2] > 1) {
+        html += s.substr(start, tokens[h][2] - start);
       }
-      html += '<span class="highlight">' + tokens[i][0] + '</span>';
-      start = tokens[i][2] + tokens[i][3];
+      html += '<span class="highlight">' + tokens[h][0] + '</span>';
+      start = tokens[h][2] + tokens[h][3];
     }
     if (start != s.length){
       html += s.substr(start, s.length);
     }
+    html = html.replace(new RegExp(preg_quote('  '), 'gi' ), '&nbsp;&nbsp;');
     $mirror.html(html.replace(/(\r\n|\r|\n)/g, "<br />"));
     var $car = $('<span/>').addClass(caretClass).html('&nbsp;');
     $mirror.append($car).scrollTop($obj.scrollTop());
+    setInputSelection($obj, caretPos, caretPos);
   }
 
   function preg_quote(str) {
@@ -292,6 +335,7 @@
   GeniusBox.prototype = {
     init: function () {
       var ele = this.$element;
+      ele.data("original", ele.val());
       ele.css({ 'background': 'transparent', 'position': 'absolute', 'z-index':10});
       var mirror = this.$mirror;
       if (!ele.data(name)) {
@@ -310,6 +354,8 @@
         var tokens = config.tokens;
         // set this element as initialised
         ele.data(name, config);
+        update(ele, mirror, tokens);
+
         // track key down events on the object
         ele.bind('keydown', function(event) {
           var preventKeyCodes = [9, 13, 27, 38, 40];
@@ -331,7 +377,6 @@
             if (ele.data(name).capture === false && String.fromCharCode(event.which) == trigger) {
               ele.data(name).activeTrigger = trigger;
               ele.data(name).activeData = data;
-              //this.$element.data(name).startupChar = true;
               startCapture(ele, tokens);
             }
           });
@@ -399,47 +444,19 @@
               doSearch(ele);
               break;
             }
-          }
-          // if capturing is not active
-          else {
-            // backspace for deleteing tokens
-            if(event.which == 8){
-              var pos = getInputSelection(ele.get(0)).start;
-              var s   = ele.val();
-              for(var i = 0; i < tokens.length; i++){
-                // see if backspace is in the middle of existing token.
-                if (pos >= tokens[i][2] && pos <= tokens[i][2] + tokens[i][3]){
-                  var removedLength = tokens[i][0].length;
-                  // update all tokens after the one being deleted.
-                  $.each(tokens, function(index, token){
-                    if(tokens[i][2] < token[2]){
-                      token[2] = token[2] - removedLength - 1;
-                    }
-                  });
-                  s = s.substr(0, tokens[i][2]) + s.substr(tokens[i][2] + tokens[i][3]);
-                  tokens.splice(i,1);
-                } else{
-                  $.each(tokens, function(index, token){
-                    if(token[2] > pos){
-                      token[2] = token[2] - 1;
-                    }
-                  });
-                }
-              }
-              ele.val(s);
-            }
+          } else{
+            updateTokenPositions(ele, mirror, tokens);
           }
         });
-        if(ele.data(name).autoExpand === true){
-          update(ele, mirror, tokens);
+
+        // updating the hidden div needs to happen all the time - as close to real time as possible.
+        ele.bind("input onpropertychange", function(event){
           // Set the textarea to the content height. i.e. expand as we type.
-          ele.on('keyup keypress keydown paste cut', function () {
-            update(ele, mirror, tokens);
-            var contentHeight = height(ele, mirror);
-            ele.height(contentHeight);
-            ele.parent().height(contentHeight);
-          });
-        }
+          var contentHeight = height(ele, mirror);
+          ele.height(contentHeight);
+          ele.parent().height(contentHeight);
+          update(ele, mirror, tokens);
+        });
 
         //on mouse hover of a lookup result highlight it
         $(".lookupui > li").on("mouseover", function() {
@@ -458,7 +475,7 @@
     destroy: function() {
       return this.each(function(){
         var $lookupObj = $(this);
-        $lookupObj.unbind('keyup paste cut keydown');
+        $lookupObj.unbind('keyup keypress keydown');
         $lookupObj.removeData(name);
       });
     }
